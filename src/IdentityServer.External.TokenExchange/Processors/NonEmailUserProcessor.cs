@@ -1,11 +1,10 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Text;
-using System.Threading.Tasks;
-using IdentityServer.External.TokenExchange.Interfaces;
+﻿using IdentityServer.External.TokenExchange.Interfaces;
 using IdentityServer4.Models;
 using IdentityServer4.Validation;
 using Newtonsoft.Json.Linq;
+using System;
+using System.Collections.Generic;
+using System.Threading.Tasks;
 
 namespace IdentityServer.External.TokenExchange.Processors
 {
@@ -24,36 +23,39 @@ namespace IdentityServer.External.TokenExchange.Processors
                 userEmail = userInfo.Value<string>("emailAddress");
 
             var userExternalId = userInfo.Value<string>("id");
+            if (string.IsNullOrWhiteSpace(userExternalId))
+            {
+                return new GrantValidationResult(TokenRequestErrors.InvalidRequest, "could not retrieve user id from the token provided");
+            }
+
+            var existingUserId = await _externalUserStore.FindByProviderAsync(provider, userExternalId);
+            if (!string.IsNullOrWhiteSpace(existingUserId))
+            {
+                var userClaims = await _externalUserStore.GetUserClaimsByExternalIdAsync(userExternalId);
+                return new GrantValidationResult(existingUserId, provider, userClaims, provider, null);
+            }
 
             if (string.IsNullOrWhiteSpace(userEmail))
             {
-                var existingUserId = await _externalUserStore.FindByProviderAsync(provider, userExternalId);
-                if (string.IsNullOrWhiteSpace(existingUserId))
-                {
-                    var customResponse = new Dictionary<string, object>
+                var customResponse = new Dictionary<string, object>
                     {
                         { "userInfo", userInfo }
                     };
-                    return new GrantValidationResult(TokenRequestErrors.InvalidRequest,
-                                                     "could not retrieve user's email from the given provider, include email paramater and send request again.",
-                                                    customResponse);
-                }
-                else
-                {
-                    var userClaims = await _externalUserStore.GetUserClaimsByExternalIdAsync(userExternalId);
-                    return new GrantValidationResult(existingUserId, provider, userClaims, provider, null);
-                }
-
+                return new GrantValidationResult(TokenRequestErrors.InvalidRequest,
+                                                 "could not retrieve user's email from the given provider, include email paramater and send request again.",
+                                                customResponse);
             }
-
-            var newUserId = await _externalUserStore.CreateExternalUserAsync(userExternalId, userEmail, provider);
-            if (!string.IsNullOrWhiteSpace(newUserId))
+            else
             {
-                var claims = await _externalUserStore.GetUserClaimsByExternalIdAsync(userExternalId);
-                return new GrantValidationResult(newUserId, provider, claims, provider, null);
-            }
+                var newUserId = await _externalUserStore.CreateExternalUserAsync(userExternalId, userEmail, provider);
+                if (!string.IsNullOrWhiteSpace(newUserId))
+                {
+                    var claims = await _externalUserStore.GetUserClaimsByExternalIdAsync(userExternalId);
+                    return new GrantValidationResult(newUserId, provider, claims, provider, null);
+                }
 
-            return new GrantValidationResult(TokenRequestErrors.InvalidRequest, "could not create user, please try again.");
+                return new GrantValidationResult(TokenRequestErrors.InvalidRequest, "could not create user, please try again.");
+            }
 
         }
     }

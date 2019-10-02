@@ -1,11 +1,9 @@
-﻿using System;
-using System.Threading.Tasks;
-using IdentityServer.External.TokenExchange.Config;
-using IdentityServer.External.TokenExchange.Interfaces;
-using IdentityServer.External.TokenExchange.Stores;
-using IdentityServer4.Models;
-using IdentityServer4.Validation;
+﻿using IdentityServer.External.TokenExchange.Config;
 using IdentityServer.External.TokenExchange.Helpers;
+using IdentityServer.External.TokenExchange.Interfaces;
+using IdentityServer4.Validation;
+using System;
+using System.Threading.Tasks;
 
 namespace IdentityServer.External.TokenExchange
 {
@@ -69,23 +67,30 @@ namespace IdentityServer.External.TokenExchange
                 }
 
                 var externalId = userInfo.Value<string>("id");
-                if (!string.IsNullOrWhiteSpace(externalId))
+                if (string.IsNullOrWhiteSpace(externalId))
                 {
-                    var existingUserId = await _externalUserStore.FindByProviderAsync(providerName,externalId);
-                    if (!string.IsNullOrWhiteSpace(existingUserId))
-                    {
-                        var claims = await _externalUserStore.GetUserClaimsByExternalIdAsync(externalId);
-                        context.Result = GrantValidationResultHelpers.Success(existingUserId,providerName,claims);
-                    }
-                }
-
-                if (string.IsNullOrWhiteSpace(requestEmail))
-                {
-                    context.Result = await _nonEmailUserProcessor.ProcessAsync(userInfo, providerName);
+                    context.Result = GrantValidationResultHelpers.Error(TokenExchangeErrors.InvalidExternalToken);
                     return;
                 }
 
-                context.Result = await _emailUserProcessor.ProcessAsync(userInfo, requestEmail, providerName);
+                var existingUserId = await _externalUserStore.FindByProviderAsync(providerName, externalId);
+                if (string.IsNullOrWhiteSpace(existingUserId))
+                {
+                    if (string.IsNullOrWhiteSpace(requestEmail))
+                    {
+                        context.Result = await _nonEmailUserProcessor.ProcessAsync(userInfo, providerName);
+                        return;
+                    }
+
+                    context.Result = await _emailUserProcessor.ProcessAsync(userInfo, requestEmail, providerName);
+                }
+                else
+                {
+                    var claims = await _externalUserStore.GetUserClaimsByExternalIdAsync(externalId);
+                    context.Result = GrantValidationResultHelpers.Success(existingUserId, providerName, claims);
+                }
+
+
             }
             catch (Exception e)
             {
